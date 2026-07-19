@@ -1,0 +1,7 @@
+
+services:
+  discord-relay:
+    build: .
+    restart: always
+    ports:
+      - "5050:8000" # Внешний порт 5050, внутренний 8000
