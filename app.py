@@ -14,16 +14,6 @@ if not AUTH_TOKEN:
 
 DISCORD_BASE_URL = "https://discord.com/api"
 
-# Заглушка для корня, чтобы не было 404, когда заходишь просто по домену
-@app.get("/")
-async def root():
-    return {"message": "Relay is active"}
-
-# Игнорируем запросы иконок, чтобы не забивать логи
-@app.get("/favicon.ico")
-async def favicon():
-    return Response(status_code=204)
-
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy_to_discord(path: str, request: Request):
     # 1. Проверка токена (Защита от ботнета)
