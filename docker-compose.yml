@@ -7,8 +7,3 @@ services:
       - "5050:8000" # Внешний порт 5050, внутренний 8000
     environment:
       AUTH_TOKEN: ${AUTH_TOKEN:?AUTH_TOKEN must be set in .env or the shell}
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3

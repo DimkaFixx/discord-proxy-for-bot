@@ -2,6 +2,7 @@ import httpx
 from fastapi import FastAPI, Request, Response, HTTPException
 import os
 import logging
+import time
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,15 +15,38 @@ AUTH_TOKEN = os.getenv('AUTH_TOKEN')
 if not AUTH_TOKEN:
     logger.warning("AUTH_TOKEN is not set! Proxy will block all requests.")
 else:
-    # Никогда не пишем полный секрет в логах контейнера.
-    masked_token = f"{AUTH_TOKEN[:4]}…{AUTH_TOKEN[-4:]}" if len(AUTH_TOKEN) > 8 else "***"
-    logger.info("AUTH_TOKEN loaded: %s", masked_token)
+    logger.info("AUTH_TOKEN loaded successfully")
 
 DISCORD_BASE_URL = "https://discord.com/api"
 
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+@app.on_event("startup")
+async def on_startup() -> None:
+    logger.info("Discord relay application started successfully")
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    started_at = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+        logger.exception(
+            "Request failed: method=%s path=%s duration_ms=%.1f",
+            request.method,
+            request.url.path,
+            elapsed_ms,
+        )
+        raise
+
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info(
+        "Request completed: method=%s path=%s status=%s duration_ms=%.1f",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_ms,
+    )
+    return response
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy_to_discord(path: str, request: Request):
@@ -30,10 +54,8 @@ async def proxy_to_discord(path: str, request: Request):
     incoming_token = request.headers.get("X-Relay-Token")
     
     if not incoming_token or incoming_token != AUTH_TOKEN:
-        # Не логируем каждую атаку, чтобы не забивать диск
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    # 2. Логируем только успешные попытки проксирования
     logger.info("Forwarding request to Discord: %s", path)
 
     url = f"{DISCORD_BASE_URL}/{path}"
@@ -63,6 +85,7 @@ async def proxy_to_discord(path: str, request: Request):
             )
         except httpx.ConnectError:
             raise HTTPException(status_code=502, detail="Could not connect to Discord API")
-        except Exception as e:
+        except Exception:
             logger.exception("Proxy error")
-            raise HTTPException(status_code=502, detail=str(e))
+            # Не раскрываем клиенту URL, заголовки и внутренний текст исключения.
+            raise HTTPException(status_code=502, detail="Upstream request failed")
