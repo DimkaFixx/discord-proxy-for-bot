@@ -1,18 +1,28 @@
 import httpx
 from fastapi import FastAPI, Request, Response, HTTPException
 import os
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = FastAPI()
+logger = logging.getLogger("uvicorn.error")
 
 # Получаем токен и проверяем, что он вообще задан
 AUTH_TOKEN = os.getenv('AUTH_TOKEN')
 if not AUTH_TOKEN:
-    print("WARNING: AUTH_TOKEN is not set! Proxy will block all requests.")
+    logger.warning("AUTH_TOKEN is not set! Proxy will block all requests.")
+else:
+    # Никогда не пишем полный секрет в логах контейнера.
+    masked_token = f"{AUTH_TOKEN[:4]}…{AUTH_TOKEN[-4:]}" if len(AUTH_TOKEN) > 8 else "***"
+    logger.info("AUTH_TOKEN loaded: %s", masked_token)
 
 DISCORD_BASE_URL = "https://discord.com/api"
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy_to_discord(path: str, request: Request):
@@ -24,7 +34,7 @@ async def proxy_to_discord(path: str, request: Request):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     # 2. Логируем только успешные попытки проксирования
-    print(f"Forwarding request to Discord: {path}")
+    logger.info("Forwarding request to Discord: %s", path)
 
     url = f"{DISCORD_BASE_URL}/{path}"
     body = await request.body()
@@ -54,5 +64,5 @@ async def proxy_to_discord(path: str, request: Request):
         except httpx.ConnectError:
             raise HTTPException(status_code=502, detail="Could not connect to Discord API")
         except Exception as e:
-            print(f"Proxy error: {e}")
+            logger.exception("Proxy error")
             raise HTTPException(status_code=502, detail=str(e))
