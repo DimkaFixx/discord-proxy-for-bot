@@ -77,11 +77,37 @@ async def proxy_to_discord(path: str, request: Request):
                 params=request.query_params,
                 timeout=20.0 # Дискорд иногда тормозит
             )
+
+            logger.info(
+                "Discord response: status=%s content_type=%s",
+                resp.status_code,
+                resp.headers.get("content-type", "unknown"),
+            )
+
+            # httpx уже распаковывает gzip/br-ответы. Не передаём клиенту
+            # устаревшие заголовки, иначе он попробует распаковать тело ещё раз.
+            hop_by_hop_headers = {
+                "connection",
+                "keep-alive",
+                "proxy-authenticate",
+                "proxy-authorization",
+                "te",
+                "trailer",
+                "transfer-encoding",
+                "upgrade",
+                "content-encoding",
+                "content-length",
+            }
+            response_headers = {
+                key: value
+                for key, value in resp.headers.items()
+                if key.lower() not in hop_by_hop_headers
+            }
             
             return Response(
                 content=resp.content,
                 status_code=resp.status_code,
-                headers=dict(resp.headers)
+                headers=response_headers,
             )
         except httpx.ConnectError:
             raise HTTPException(status_code=502, detail="Could not connect to Discord API")
